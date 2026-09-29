@@ -1,0 +1,13 @@
+# Secret-scanning configuration (SEC-02, SEC-12).
+# No real or development API key is stored in the repository: development keys are generated at random
+# at deploy time (database/09_dev_api_keys.sql). The only allow-listed values are the deterministic keys and
+# passwords of the throwaway integration-test container, and the placeholder passwords in .env.example.
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Documented local development and test credentials"
+paths = [
+  '''tests/ShipManagement\.IntegrationTests/.*''',
+  '''\.env\.example''',
+]

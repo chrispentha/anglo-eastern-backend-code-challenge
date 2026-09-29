@@ -1,0 +1,17 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+  <PropertyGroup>
+    <UserSecretsId>ship-management-api</UserSecretsId>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\ShipManagement.Application\ShipManagement.Application.csproj" />
+    <ProjectReference Include="..\ShipManagement.Infrastructure\ShipManagement.Infrastructure.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" />
+    <PackageReference Include="Swashbuckle.AspNetCore" />
+  </ItemGroup>
+  <ItemGroup>
+    <InternalsVisibleTo Include="ShipManagement.UnitTests" />
+    <InternalsVisibleTo Include="ShipManagement.IntegrationTests" />
+  </ItemGroup>
+</Project>

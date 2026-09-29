@@ -1,0 +1,72 @@
+### Sample requests (VS Code REST Client / Rider / Visual Studio).
+### Paste the random local development keys printed by `docker compose logs db-init` (see README).
+@baseUrl = http://localhost:8080
+@adminKey = <paste the sm_devadm01_... key here>
+@crewingKey = <paste the sm_devcrw01_... key here>
+
+### Liveness and readiness (anonymous)
+GET {{baseUrl}}/health/ready
+
+### Who am I
+GET {{baseUrl}}/api/v1/users/me
+X-Api-Key: {{crewingKey}}
+
+### My ships
+GET {{baseUrl}}/api/v1/users/me/ships
+X-Api-Key: {{crewingKey}}
+
+### Create a user (Administrator)
+POST {{baseUrl}}/api/v1/users
+X-Api-Key: {{adminKey}}
+Content-Type: application/json
+
+{ "fullName": "Jane Doe", "email": "jane.doe@example.com", "role": "Superintendent" }
+
+### List users (Administrator)
+GET {{baseUrl}}/api/v1/users?pageNumber=1&pageSize=20&role=CrewingOfficer
+X-Api-Key: {{adminKey}}
+
+### Create a ship (Administrator)
+POST {{baseUrl}}/api/v1/ships
+X-Api-Key: {{adminKey}}
+Content-Type: application/json
+
+{ "shipCode": "SHIP06", "shipName": "Nautilus", "fiscalYearCode": "0403" }
+
+### List ships
+GET {{baseUrl}}/api/v1/ships?status=Active
+X-Api-Key: {{adminKey}}
+
+### Deactivate a ship (Administrator)
+PATCH {{baseUrl}}/api/v1/ships/SHIP06
+X-Api-Key: {{adminKey}}
+Content-Type: application/json
+
+{ "status": "Inactive" }
+
+### Assign a ship to user 2 (Administrator, idempotent)
+PUT {{baseUrl}}/api/v1/users/2/ships/SHIP03
+X-Api-Key: {{adminKey}}
+
+### Ships of user 2
+GET {{baseUrl}}/api/v1/users/2/ships
+X-Api-Key: {{adminKey}}
+
+### Crew list: paged, sorted by rank seniority, searched by partial date
+GET {{baseUrl}}/api/v1/ships/SHIP01/crew?pageNumber=1&pageSize=20&sortBy=rank&sortDirection=asc&search=05 Apr
+X-Api-Key: {{crewingKey}}
+
+### Financial report, detail (SHIP02 is on an Apr-Mar fiscal year: YTD Apr 2024 - Feb 2025)
+GET {{baseUrl}}/api/v1/ships/SHIP02/financial-reports/detail?period=2025-02
+X-Api-Key: {{crewingKey}}
+
+### Financial report, summary
+GET {{baseUrl}}/api/v1/ships/SHIP02/financial-reports/summary?period=2025-02
+X-Api-Key: {{crewingKey}}
+
+### Issue an API key for user 3 (Administrator; the key is shown once)
+POST {{baseUrl}}/api/v1/users/3/api-keys
+X-Api-Key: {{adminKey}}
+Content-Type: application/json
+
+{ "expiresInDays": 30 }

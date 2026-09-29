@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Code coverage settings shared by local runs and CI:
+       dotnet test ShipManagement.sln -settings coverage.runsettings -collect "XPlat Code Coverage"
+     Only production assemblies are measured; compiler-generated code (source generators under obj/) is excluded. -->
+<RunSettings>
+  <DataCollectionRunSettings>
+    <DataCollectors>
+      <DataCollector friendlyName="XPlat code coverage">
+        <Configuration>
+          <Format>cobertura</Format>
+          <Include>[ShipManagement.Api]*,[ShipManagement.Application]*,[ShipManagement.Domain]*,[ShipManagement.Infrastructure]*</Include>
+          <ExcludeByFile>**/obj/**/*.cs</ExcludeByFile>
+          <ExcludeByAttribute>GeneratedCodeAttribute,ExcludeFromCodeCoverageAttribute</ExcludeByAttribute>
+          <SkipAutoProps>true</SkipAutoProps>
+        </Configuration>
+      </DataCollector>
+    </DataCollectors>
+  </DataCollectionRunSettings>
+</RunSettings>

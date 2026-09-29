@@ -1,0 +1,8 @@
+<Project>
+  <Import Project="$([MSBuild]::GetPathOfFileAbove('Directory.Build.props', '$(MSBuildThisFileDirectory)../'))" />
+  <PropertyGroup>
+    <!-- Test naming uses underscores (Rule_Is_X_When_Y); tests are not a public API surface. -->
+    <NoWarn>$(NoWarn);CA1707;CA1711;CA1515;CA2007;CA1861;CA1812</NoWarn>
+    <GenerateDocumentationFile>false</GenerateDocumentationFile>
+  </PropertyGroup>
+</Project>

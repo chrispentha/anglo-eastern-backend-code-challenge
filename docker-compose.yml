@@ -1,0 +1,71 @@
+# One-command local environment: SQL Server 2022 (Express edition) -> db-init (runs database/deploy.sh) -> API.
+#   cp .env.example .env   # then change the passwords
+#   docker compose up -d --build
+# API: http://localhost:8080 (Swagger UI at /swagger). All values come from .env (git-ignored, SEC-02).
+# Local development API keys are generated at random on first deploy:  docker compose logs db-init
+name: ship-management
+
+services:
+  sqlserver:
+    image: mcr.microsoft.com/mssql/server:2022-latest
+    platform: linux/amd64   # no arm64 build exists; Docker Desktop on Apple Silicon emulates it (Rosetta)
+    environment:
+      ACCEPT_EULA: "Y"
+      MSSQL_PID: Express
+      MSSQL_SA_PASSWORD: ${MSSQL_SA_PASSWORD:?Set MSSQL_SA_PASSWORD in .env}
+    ports:
+      - "127.0.0.1:${SQL_PORT:-1433}:1433"   # bound to localhost only
+    volumes:
+      - mssql-data:/var/opt/mssql
+    healthcheck:
+      # Password passed through the environment, never on the command line.
+      test: ["CMD-SHELL", "SQLCMDPASSWORD=\"$$MSSQL_SA_PASSWORD\" /opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -C -b -Q 'SELECT 1' -o /dev/null"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 30s
+
+  db-init:
+    image: mcr.microsoft.com/mssql/server:2022-latest
+    platform: linux/amd64
+    depends_on:
+      sqlserver:
+        condition: service_healthy
+    environment:
+      DB_SERVER: sqlserver
+      DB_NAME: ${DB_NAME:-ShipManagement}
+      MSSQL_SA_PASSWORD: ${MSSQL_SA_PASSWORD:?Set MSSQL_SA_PASSWORD in .env}
+      APP_DB_USER: ${APP_DB_USER:?Set APP_DB_USER in .env}
+      APP_DB_PASSWORD: ${APP_DB_PASSWORD:?Set APP_DB_PASSWORD in .env}
+      SEED_SAMPLE_DATA: ${SEED_SAMPLE_DATA:-1}
+      ROTATE_DEV_KEYS: ${ROTATE_DEV_KEYS:-0}
+    volumes:
+      - ./database:/database:ro
+    entrypoint: ["bash", "/database/deploy.sh"]
+    restart: "no"
+
+  api:
+    build: .
+    image: ship-management-api:local
+    depends_on:
+      db-init:
+        condition: service_completed_successfully
+    environment:
+      ASPNETCORE_ENVIRONMENT: Production
+      # Least-privilege login. TrustServerCertificate is acceptable only for this local container network;
+      # production uses a trusted certificate (Encrypt=True;TrustServerCertificate=False) (SEC-05).
+      Database__ConnectionString: "Server=sqlserver,1433;Database=${DB_NAME:-ShipManagement};User ID=${APP_DB_USER};Password=${APP_DB_PASSWORD};Encrypt=True;TrustServerCertificate=True;Application Name=ShipManagement.Api;Connect Timeout=15"
+      Swagger__Enabled: "true"   # local demo only (D-26)
+    ports:
+      - "127.0.0.1:${API_PORT:-8080}:8080"
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    restart: unless-stopped
+
+volumes:
+  mssql-data:

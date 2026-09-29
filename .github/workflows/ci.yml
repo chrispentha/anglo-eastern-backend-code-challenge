@@ -1,0 +1,157 @@
+# Continuous integration (N6): build, format, unit + integration tests, dependency audit, a Docker Compose
+# smoke test of the full stack, and security scanning (SEC-12).
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+# Least privilege for the workflow token; jobs that need more ask for it explicitly.
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  DOTNET_NOLOGO: true
+  DOTNET_CLI_TELEMETRY_OPTOUT: true
+
+jobs:
+  build-test:
+    name: Build and test
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: global.json
+
+      - name: Restore (locked)
+        run: dotnet restore ShipManagement.sln --locked-mode
+
+      - name: Verify formatting
+        run: dotnet format ShipManagement.sln --verify-no-changes --no-restore
+
+      - name: Build (warnings as errors)
+        run: dotnet build ShipManagement.sln --configuration Release --no-restore -warnaserror
+
+      - name: Unit tests
+        run: >
+          dotnet test tests/ShipManagement.UnitTests --configuration Release --no-build
+          --logger "trx;LogFileName=unit.trx" --results-directory TestResults --settings coverage.runsettings --collect "XPlat Code Coverage"
+
+      - name: Integration tests (SQL Server 2022 via Testcontainers)
+        run: >
+          dotnet test tests/ShipManagement.IntegrationTests --configuration Release --no-build
+          --logger "trx;LogFileName=integration.trx" --results-directory TestResults --settings coverage.runsettings --collect "XPlat Code Coverage"
+
+      - name: Coverage gate (>= 90% line and branch for every project)
+        run: python3 scripts/coverage_gate.py TestResults 90
+
+      - name: Fail on vulnerable packages (high / critical)
+        run: |
+          dotnet list ShipManagement.sln package --vulnerable --include-transitive | tee vulnerable.txt
+          if grep -qE "\b(High|Critical)\b" vulnerable.txt; then
+            echo "::error::Vulnerable packages found"
+            exit 1
+          fi
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results
+          path: TestResults
+
+  compose-smoke:
+    name: Docker Compose smoke test
+    runs-on: ubuntu-latest
+    needs: build-test
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Start the stack
+        run: |
+          cp .env.example .env
+          docker compose up -d --build --wait api
+
+      - name: Exercise the API
+        run: |
+          set -euo pipefail
+          # The administrator key is generated at random by db-init and printed once in its output.
+          key=$(docker compose logs db-init --no-log-prefix | grep -o 'sm_devadm01_[A-Za-z0-9_-]\{43\}' | tail -1)
+          test -n "$key"
+          for attempt in $(seq 1 30); do
+            curl -fsS http://localhost:8080/health/ready && break
+            sleep 2
+          done
+          curl -fsS http://localhost:8080/health/ready
+          curl -fsS -H "X-Api-Key: $key" "http://localhost:8080/api/v1/ships/SHIP01/crew?pageSize=5" > crew.json
+          curl -fsS -H "X-Api-Key: $key" "http://localhost:8080/api/v1/ships/SHIP02/financial-reports/detail?period=2025-02" > report.json
+          jq -e '.totalCount >= 20' crew.json
+          jq -e '.ytdStart == "2024-04" and .ytdEnd == "2025-02"' report.json
+          test "$(curl -s -o /dev/null -w '%{http_code}' http://localhost:8080/api/v1/ships)" = "401"
+
+      - name: Logs on failure
+        if: failure()
+        run: docker compose logs
+
+      - name: Tear down
+        if: always()
+        run: docker compose down -v
+
+  security:
+    name: Security scans
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      security-events: write   # CodeQL / SARIF upload
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # full history for secret scanning
+
+      - name: Secret scan (gitleaks)
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: global.json
+
+      - name: CodeQL init
+        uses: github/codeql-action/init@v3
+        with:
+          languages: csharp
+          build-mode: manual
+
+      - name: Build for CodeQL
+        run: dotnet build ShipManagement.sln --configuration Release
+
+      - name: CodeQL analyze
+        uses: github/codeql-action/analyze@v3
+
+      - name: Dockerfile lint (hadolint)
+        uses: hadolint/hadolint-action@v3.1.0
+        with:
+          dockerfile: Dockerfile
+
+      - name: Build API image
+        run: docker build -t ship-management-api:ci .
+
+      - name: Image vulnerability scan (Trivy)
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          image-ref: ship-management-api:ci
+          severity: CRITICAL,HIGH
+          ignore-unfixed: true
+          exit-code: "1"
